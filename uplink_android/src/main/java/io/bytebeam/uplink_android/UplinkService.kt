@@ -55,7 +55,7 @@ class UplinkService : Service() {
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
         val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
-        telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_CELL_INFO or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
+        telephonyManager.listen(updateNetworkInfoTwo, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -302,60 +302,28 @@ class UplinkService : Service() {
     }
 
     var networkInfoSequence = 1
+    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Disconnected, 0)
     fun networkStatusTask() {
-        val start = System.currentTimeMillis()
-        val info = getNetworkInfo()
-        val took = System.currentTimeMillis() - start
-        Log.i(TAG, "Cell info ($took ms): $info")
+        updateNetworkInfoOne()
         pushData(
             UplinkPayload(
                 stream = "network_status",
                 sequence = networkInfoSequence++,
                 fields = mapOf(
                     "ping_ms" to pingServer(),
-                    "internet_connection_type" to info.internetType.toString(),
-                    "wifi_strength" to info.wifiStrength,
-                    "mobile_network_type" to info.mobileConnectionType.toString(),
-                    "mobile_network_dbm" to info.mobileNetworkDbm
+                    "internet_connection_type" to cachedNetworkState.internetType.toString(),
+                    "wifi_strength" to cachedNetworkState.wifiStrength,
+                    "mobile_network_type" to cachedNetworkState.mobileNetworkType.toString(),
+                    "mobile_network_level" to cachedNetworkState.mobileNetworkLevel
                 )
             )
         )
         serviceThread.postDelayed(this::networkStatusTask, 1000)
     }
 
-    val phoneStateListener = object: PhoneStateListener() {
-        override fun onServiceStateChanged(serviceState: ServiceState?) {
-            Log.i(TAG, "onServiceStateChanged")
-        }
-
-        override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
-            Log.i(TAG, "onSignalStrengthChanged(${signalStrength?.cdmaDbm} | ${signalStrength?.evdoDbm} | ${signalStrength?.gsmSignalStrength} | ${signalStrength?.level})")
-        }
-
-        override fun onCellInfoChanged(cellInfo: MutableList<CellInfo>?) {
-            Log.i(TAG, "onCellInfoChanged")
-        }
-
-        override fun onActiveDataSubscriptionIdChanged(subId: Int) {
-            Log.i(TAG, "onActiveDataSubscriptionIdChanged")
-        }
-
-        override fun onUserMobileDataStateChanged(enabled: Boolean) {
-            Log.i(TAG, "onUserMobileDataStateChanged")
-        }
-
-        override fun onPreciseDataConnectionStateChanged(dataConnectionState: PreciseDataConnectionState) {
-            Log.i(TAG, "onPreciseDataConnectionStateChanged")
-        }
-
-        override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
-            Log.i(TAG, "onDataConnectionStateChanged($state, $networkType)")
-        }
-    }
-
-    fun getNetworkInfo(): NetworkInfo {
+    fun updateNetworkInfoOne() {
         val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val internetType = run {
+        cachedNetworkState.internetType = run {
             val network = connectivityManager.activeNetwork ?: return@run InternetType.Disconnected
             val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@run InternetType.Disconnected
 
@@ -367,41 +335,37 @@ class UplinkService : Service() {
                 InternetType.Disconnected
             }
         }
-        val wifiStrength = if (internetType == InternetType.Wifi) {
+        cachedNetworkState.wifiStrength = if (cachedNetworkState.internetType == InternetType.Wifi) {
             val wifiManager = this.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val wifiInfo: WifiInfo = wifiManager.connectionInfo
             WifiManager.calculateSignalLevel(wifiInfo.rssi, 101)
         } else {
             0
         }
+    }
 
-        val telephonyManager = this.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-
-        var mobileConnectionType = MobileConnectionType.Disconnected
-        var mobileNetworkStrength = 0;
-        for (ci in telephonyManager.allCellInfo) {
-            Log.i(TAG, "here")
-            if (ci is CellInfoLte && ci.isRegistered) {
-                mobileConnectionType = MobileConnectionType.M4G
-                mobileNetworkStrength = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoWcdma && ci.isRegistered) {
-                mobileConnectionType = MobileConnectionType.M3G
-                mobileNetworkStrength = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoGsm && ci.isRegistered) {
-                mobileConnectionType = MobileConnectionType.M2G
-                mobileNetworkStrength = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoCdma && ci.isRegistered) {
-                mobileConnectionType = MobileConnectionType.M2G
-                mobileNetworkStrength = ci.cellSignalStrength.dbm
+    val updateNetworkInfoTwo = object: PhoneStateListener() {
+        override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
+            signalStrength?.level?.let {
+                cachedNetworkState.mobileNetworkLevel = it
             }
         }
 
-        return NetworkInfo(
-            internetType,
-            wifiStrength,
-            mobileConnectionType,
-            mobileNetworkStrength
-        )
+        override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
+            Log.i(TAG, "data connection state change: $state, $networkType")
+            if (state == TelephonyManager.DATA_CONNECTED) {
+                if (networkType == TelephonyManager.NETWORK_TYPE_LTE) {
+                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M4G
+                } else if (networkType == TelephonyManager.NETWORK_TYPE_CDMA) {
+                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M3G
+                } else if (networkType == TelephonyManager.NETWORK_TYPE_GSM || networkType == TelephonyManager.NETWORK_TYPE_EDGE) {
+                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
+                }
+            } else if (state == TelephonyManager.DATA_DISCONNECTED) {
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.Disconnected
+                cachedNetworkState.mobileNetworkLevel = 0
+            }
+        }
     }
 
     fun pingServer(): Long {
@@ -468,8 +432,8 @@ enum class InternetType { Wifi, Mobile, Disconnected }
 enum class MobileConnectionType { M2G, M3G, M4G, Disconnected }
 
 data class NetworkInfo(
-    val internetType: InternetType,
-    val wifiStrength: Int,
-    var mobileConnectionType: MobileConnectionType,
-    var mobileNetworkDbm: Int,
+    var internetType: InternetType,
+    var wifiStrength: Int,
+    var mobileNetworkType: MobileConnectionType,
+    var mobileNetworkLevel: Int,
 )
