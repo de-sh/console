@@ -11,6 +11,7 @@
     <uses-permission android:name="android.permission.WIFI_STATE_CHANGED"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application>
         <service

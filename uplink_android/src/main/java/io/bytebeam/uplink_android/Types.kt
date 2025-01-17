@@ -47,7 +47,7 @@ data class UplinkPayload(
 
         for ((key, value) in fields) {
             when (value) {
-                is Int, is Float, is Double, is String, is Boolean -> jsonObject.put(key, value)
+                is Int, is Long, is Float, is Double, is String, is Boolean -> jsonObject.put(key, value)
                 else -> throw IllegalArgumentException("Unsupported value type for key '$key': ${value::class.simpleName}")
             }
         }

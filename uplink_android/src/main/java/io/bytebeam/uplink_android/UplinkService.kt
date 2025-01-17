@@ -19,11 +19,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.telephony.CellInfoCdma
-import android.telephony.CellInfoGsm
-import android.telephony.CellInfoLte
-import android.telephony.CellInfoWcdma
-import android.telephony.TelephonyManager
+import android.os.PowerManager
+import android.telephony.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.io.BufferedReader
@@ -45,9 +42,15 @@ class UplinkService : Service() {
         return null
     }
 
+    lateinit var wakeLock: PowerManager.WakeLock
     override fun onCreate() {
         createNotificationChannel();
         uplinkLogger = LogRotate(deviceJsonFile.parent!!, "out.log", 1024000, 8)
+        wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
+            newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "UplinkService::NetworkInfoWakeLock").apply {
+                acquire()
+            }
+        }
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
@@ -240,6 +243,11 @@ class UplinkService : Service() {
             flush_period = 1
             persistence = { max_file_size = 102400, max_file_count = 10 }
             
+            [streams.network_status]
+            batch_size = 8
+            flush_period = 1
+            persistence = { max_file_size = 102400, max_file_count = 10 }
+            
             [system_stats]
             enabled = false
             update_period = 2
@@ -274,13 +282,6 @@ class UplinkService : Service() {
             )
         )
 
-        pushData(
-            UplinkPayload(
-                stream = "network_status",
-                sequence = networkInfoSequence++,
-                fields = mapOf()
-            )
-        )
         serviceThread.postDelayed(this::powerStatusTask, 5000)
     }
 
@@ -304,16 +305,19 @@ class UplinkService : Service() {
         val info = getNetworkInfo()
         var took = System.currentTimeMillis() - start
         Log.i(TAG, "Cell info ($took ms): $info")
-//        pushData(
-//            UplinkPayload(
-//                stream = "network_status",
-//                sequence = networkInfoSequence++,
-//                fields = mapOf(
-//                    "ping_ms" to pingServer(),
-//
-//                    )
-//            )
-//        )
+        pushData(
+            UplinkPayload(
+                stream = "network_status",
+                sequence = networkInfoSequence++,
+                fields = mapOf(
+                    "ping_ms" to pingServer(),
+                    "internet_connection_type" to info.internetType.toString(),
+                    "wifi_strength" to info.wifiStrength,
+                    "mobile_network_type" to info.mobileConnectionType.toString(),
+                    "mobile_network_dbm" to info.mobileNetworkDbm
+                )
+            )
+        )
         serviceThread.postDelayed(this::networkStatusTask, 1000)
     }
 
@@ -369,20 +373,21 @@ class UplinkService : Service() {
     }
 
     fun pingServer(): Long {
-        return try {
-            val inetAddress = InetAddress.getByName(uplinkConfig!!.pingUrl)
-            val startTime = System.currentTimeMillis()
-            val isReachable = inetAddress.isReachable(1000)  // Timeout in milliseconds
-            val endTime = System.currentTimeMillis()
-            if (isReachable) {
-                endTime - startTime
-            } else {
-                -1L
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            -1L
-        }
+        return 0
+//        return try {
+//            val inetAddress = InetAddress.getByName(uplinkConfig!!.pingUrl)
+//            val startTime = System.currentTimeMillis()
+//            val isReachable = inetAddress.isReachable(1000)
+//            val endTime = System.currentTimeMillis()
+//            if (isReachable) {
+//                endTime - startTime
+//            } else {
+//                -1L
+//            }
+//        } catch (e: Exception) {
+//            e.printStackTrace()
+//            -1L
+//        }
     }
 }
 
