@@ -222,8 +222,8 @@ class UplinkService : Service() {
         // language=toml
         return """
             persistence_path = "$persistencePath"
-            enable_remote_shell = true
-            stdin_collector = true
+            enable_remote_shell = ${uplinkConfig!!.enableRemoteShell}
+            enable_stdin_collector = true
             
             # [logging]
             # tags = ["UplinkService"]

@@ -1,6 +1,5 @@
 package io.bytebeam.exampleapp
 
-import DeviceCredentials
 import UplinkConfig
 import android.os.Bundle
 import android.widget.Button
@@ -23,6 +22,8 @@ val testDeviceJson = """
     }
 """.trimIndent()
 
+val uplinkConfig = UplinkConfig(testDeviceJson, true)
+
 class MainActivity : AppCompatActivity() {
     var idx: Int = 0
 
@@ -30,15 +31,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         findViewById<Button>(R.id.start_btn).setOnClickListener {
-            startUplinkService(this, "message from app", UplinkConfig(testDeviceJson))
+            startUplinkService(this, "monitoring service is running", uplinkConfig)
         }
         findViewById<Button>(R.id.stop_btn).setOnClickListener {
             stopUplinkService(this)
         }
-        findViewById<Button>(R.id.reconfigure_btn).setOnClickListener {
-            idx += 1
-            startUplinkService(this, "message from app", UplinkConfig(testDeviceJson))
-        }
-        startUplinkService(this, "message from app", UplinkConfig(testDeviceJson))
+        startUplinkService(this, "monitoring service is running", uplinkConfig)
     }
 }
