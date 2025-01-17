@@ -2,6 +2,7 @@ package io.bytebeam.uplink_android
 
 import LogRotate
 import UplinkConfig
+import UplinkPayload
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -88,14 +89,13 @@ class UplinkService : Service() {
 
     fun processManager() {
         if (uplinkConfigChanged) {
-            Log.i(TAG, "uplink config changed, stopping old uplink and reconfiguring setup")
+            Log.i(TAG, "reloading uplink config")
             stopUplink()
             setupUplink()
             uplinkConfigChanged = false
         }
 
         if (uplinkConfig != null && !uplinkIsRunning()) {
-            Log.i(TAG, "Uplink isn't running, restarting it")
             startUplink()
         }
 
@@ -117,6 +117,7 @@ class UplinkService : Service() {
 
     fun stopUplink() {
         if (uplinkProcess == null) return
+        Log.i(TAG, "stopping old uplink process")
         uplinkProcess!!.destroy()
         for (idx in 1..6) {
             Thread.sleep(500)
@@ -148,6 +149,8 @@ class UplinkService : Service() {
      *        - out.log.*
      */
     fun setupUplink() {
+        Log.i(TAG, "setting up uplink config")
+
         File(uplinkFile.parent!!).mkdirs()
         overwriteFile(uplinkFile, assets.open("uplink"))
         uplinkFile.setExecutable(true)
@@ -160,20 +163,15 @@ class UplinkService : Service() {
     }
 
     fun startUplink() {
-        Log.i(TAG, "starting uplink process")
+        Log.i(TAG, "starting uplink")
+        val baseCommand = arrayOf(
+            uplinkFile.path, "-a", deviceJsonFile.path, "-c", configTomlFile.path, *uplinkConfig!!.extraUplinkArgs
+        )
         val uplinkProcess = try {
-            Runtime.getRuntime().exec(
-                arrayOf(
-                    "/system/bin/linker", uplinkFile.path, "-a", deviceJsonFile.path, "-c", configTomlFile.path, "-v"
-                )
-            )
+            Runtime.getRuntime().exec(baseCommand)
         } catch (e1: Exception) {
             try {
-                Runtime.getRuntime().exec(
-                    arrayOf(
-                        "/system/bin/linker", uplinkFile.path, "-a", deviceJsonFile.path, "-c", configTomlFile.path, "-v"
-                    )
-                )
+                Runtime.getRuntime().exec(arrayOf("/system/bin/linker", *baseCommand))
             } catch (e2: Exception) {
                 e2.initCause(e1)
                 Log.e(TAG, "couldn't start uplink", e2)
@@ -229,8 +227,13 @@ class UplinkService : Service() {
             # tags = ["UplinkService"]
             # min_level = 4
             
+            [streams.power_status]
+            batch_size = 8
+            flush_period = 1
+            persistence = { max_file_size = 102400, max_file_count = 10 }
+            
             [system_stats]
-            enabled = true
+            enabled = false
             update_period = 2
             stream_size = 1
             
@@ -241,8 +244,26 @@ class UplinkService : Service() {
 
     ////////////////////////////////////////////////////////////////////////
 
+    fun pushData(payload: UplinkPayload) {
+        uplinkProcess?.let {
+            it.outputStream.write(payload.toFlatJson().toByteArray());
+            it.outputStream.write('\n'.code)
+            it.outputStream.flush()
+        }
+    }
+
+    var batteryInfoSequence = 1
     fun systemInfoTask() {
-        Log.w(TAG, "Battery level: ${getBatteryLevel()}")
+        pushData(
+            UplinkPayload(
+                stream = "power_status",
+                sequence = batteryInfoSequence++,
+                fields = mapOf(
+                    "battery_level" to getBatteryLevel(),
+                    "charging" to batteryIsCharging()
+                )
+            )
+        )
 //        Log.w(TAG, "Network level: ${getMobileSignalStrength()}")
         serviceThread.postDelayed(this::systemInfoTask, 5000)
     }
@@ -254,6 +275,14 @@ class UplinkService : Service() {
         val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
         return if (level == -1 || scale == -1) -1 else (level / scale.toFloat() * 100).toInt()
+    }
+
+    fun batteryIsCharging(): Boolean {
+        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        val batteryStatus: Intent? = registerReceiver(null, intentFilter)
+
+        val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: return false
+        return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
     }
 
     // Signal strength in dBm, where higher values are better

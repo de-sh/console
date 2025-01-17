@@ -22,7 +22,7 @@ val testDeviceJson = """
     }
 """.trimIndent()
 
-val uplinkConfig = UplinkConfig(testDeviceJson, true)
+val uplinkConfig = UplinkConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-vv"))
 
 class MainActivity : AppCompatActivity() {
     var idx: Int = 0
