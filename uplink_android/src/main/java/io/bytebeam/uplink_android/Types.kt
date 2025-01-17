@@ -8,6 +8,7 @@ data class UplinkConfig(
     val credentials: String,
     val enableRemoteShell: Boolean = true,
     val extraUplinkArgs: Array<String> = arrayOf("-v"),
+    val pingUrl: String = "google.com"
 ) : Parcelable {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

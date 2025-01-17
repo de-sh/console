@@ -10,13 +10,19 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.telephony.PhoneStateListener
-import android.telephony.SignalStrength
+import android.telephony.CellInfoCdma
+import android.telephony.CellInfoGsm
+import android.telephony.CellInfoLte
+import android.telephony.CellInfoWcdma
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -25,6 +31,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.net.InetAddress
 
 
 class UplinkService : Service() {
@@ -42,7 +49,8 @@ class UplinkService : Service() {
         createNotificationChannel();
         uplinkLogger = LogRotate(deviceJsonFile.parent!!, "out.log", 1024000, 8)
         serviceThread.post(this::processManager)
-        serviceThread.post(this::systemInfoTask)
+        serviceThread.post(this::powerStatusTask)
+        serviceThread.post(this::networkStatusTask)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -253,55 +261,128 @@ class UplinkService : Service() {
     }
 
     var batteryInfoSequence = 1
-    fun systemInfoTask() {
+    fun powerStatusTask() {
+        val batteryInfo = getBatteryInfo()
         pushData(
             UplinkPayload(
                 stream = "power_status",
                 sequence = batteryInfoSequence++,
                 fields = mapOf(
-                    "battery_level" to getBatteryLevel(),
-                    "charging" to batteryIsCharging()
+                    "battery_level" to batteryInfo.first,
+                    "charging" to batteryInfo.second
                 )
             )
         )
-//        Log.w(TAG, "Network level: ${getMobileSignalStrength()}")
-        serviceThread.postDelayed(this::systemInfoTask, 5000)
+
+        pushData(
+            UplinkPayload(
+                stream = "network_status",
+                sequence = networkInfoSequence++,
+                fields = mapOf()
+            )
+        )
+        serviceThread.postDelayed(this::powerStatusTask, 5000)
     }
 
-    fun getBatteryLevel(): Int {
+    fun getBatteryInfo(): Pair<Int, Boolean> {
         val batteryStatus: Intent? = IntentFilter(Intent.ACTION_BATTERY_CHANGED).let { ifilter ->
             registerReceiver(null, ifilter)
         }
         val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        return if (level == -1 || scale == -1) -1 else (level / scale.toFloat() * 100).toInt()
+        val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+
+        val batteryLevel = if (level == -1 || scale == -1) -1 else (level / scale.toFloat() * 100).toInt()
+        val batteryCharging =
+            status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        return Pair(batteryLevel, batteryCharging)
     }
 
-    fun batteryIsCharging(): Boolean {
-        val intentFilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        val batteryStatus: Intent? = registerReceiver(null, intentFilter)
-
-        val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: return false
-        return status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+    var networkInfoSequence = 1
+    fun networkStatusTask() {
+        var start = System.currentTimeMillis()
+        val info = getNetworkInfo()
+        var took = System.currentTimeMillis() - start
+        Log.i(TAG, "Cell info ($took ms): $info")
+//        pushData(
+//            UplinkPayload(
+//                stream = "network_status",
+//                sequence = networkInfoSequence++,
+//                fields = mapOf(
+//                    "ping_ms" to pingServer(),
+//
+//                    )
+//            )
+//        )
+        serviceThread.postDelayed(this::networkStatusTask, 1000)
     }
 
-    // Signal strength in dBm, where higher values are better
-    fun getMobileSignalStrength(): Int {
-        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
-        var signalStrengthO = -1 // Default value
+    fun getNetworkInfo(): NetworkInfo {
+        val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val internetType = run {
+            val network = connectivityManager.activeNetwork ?: return@run InternetType.Disconnected
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@run InternetType.Disconnected
 
-        val listener = object : PhoneStateListener() {
-            override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
-                super.onSignalStrengthsChanged(signalStrength)
-                signalStrength?.let {
-                    signalStrengthO = it.gsmSignalStrength
-                }
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                InternetType.Wifi
+            } else if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
+                InternetType.Mobile
+            } else {
+                InternetType.Disconnected
+            }
+        }
+        val wifiStrength = if (internetType == InternetType.Wifi) {
+            val wifiManager = this.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val wifiInfo: WifiInfo = wifiManager.connectionInfo
+            WifiManager.calculateSignalLevel(wifiInfo.rssi, 101)
+        } else {
+            0
+        }
+
+        val telephonyManager = this.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+
+        var mobileConnectionType = MobileConnectionType.Disconnected
+        var mobileNetworkStrength = 0;
+        for (ci in telephonyManager.allCellInfo) {
+            Log.i(TAG, "here")
+            if (ci is CellInfoLte && ci.isRegistered) {
+                mobileConnectionType = MobileConnectionType.M4G
+                mobileNetworkStrength = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoWcdma && ci.isRegistered) {
+                mobileConnectionType = MobileConnectionType.M3G
+                mobileNetworkStrength = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoGsm && ci.isRegistered) {
+                mobileConnectionType = MobileConnectionType.M2G
+                mobileNetworkStrength = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoCdma && ci.isRegistered) {
+                mobileConnectionType = MobileConnectionType.M2G
+                mobileNetworkStrength = ci.cellSignalStrength.dbm
             }
         }
 
-        telephonyManager.listen(listener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS)
+        return NetworkInfo(
+            internetType,
+            mobileConnectionType,
+            wifiStrength,
+            mobileNetworkStrength
+        )
+    }
 
-        return signalStrengthO
+    fun pingServer(): Long {
+        return try {
+            val inetAddress = InetAddress.getByName(uplinkConfig!!.pingUrl)
+            val startTime = System.currentTimeMillis()
+            val isReachable = inetAddress.isReachable(1000)  // Timeout in milliseconds
+            val endTime = System.currentTimeMillis()
+            if (isReachable) {
+                endTime - startTime
+            } else {
+                -1L
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1L
+        }
     }
 }
 
@@ -344,3 +425,14 @@ fun overwriteFile(file: File, content: InputStream) {
     fos.close()
     content.close()
 }
+
+enum class InternetType { Wifi, Mobile, Disconnected }
+
+enum class MobileConnectionType { M2G, M3G, M4G, Disconnected }
+
+data class NetworkInfo(
+    val internetType: InternetType,
+    val mobileConnectionType: MobileConnectionType,
+    val wifiStrength: Int,
+    val mobileNetworkDbm: Int,
+)
