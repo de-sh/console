@@ -14,22 +14,22 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
-import android.os.BatteryManager
-import android.os.Build
-import android.os.Handler
-import android.os.IBinder
-import android.os.Looper
-import android.os.PowerManager
+import android.os.*
 import android.telephony.*
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import java.io.BufferedReader
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStream
-import java.io.InputStreamReader
-import java.net.InetAddress
+import java.io.*
+import java.lang.Process
+import java.lang.Runtime
+import java.lang.System
+import java.lang.Thread
+import java.util.concurrent.Executor
 
+val StaticExecutor = object: Executor {
+    override fun execute(cb: Runnable?) {
+        cb?.run();
+    }
+}
 
 class UplinkService : Service() {
     val serviceThread = Handler(Looper.myLooper()!!)
@@ -54,6 +54,8 @@ class UplinkService : Service() {
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
+        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
+        telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_CELL_INFO or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -301,9 +303,9 @@ class UplinkService : Service() {
 
     var networkInfoSequence = 1
     fun networkStatusTask() {
-        var start = System.currentTimeMillis()
+        val start = System.currentTimeMillis()
         val info = getNetworkInfo()
-        var took = System.currentTimeMillis() - start
+        val took = System.currentTimeMillis() - start
         Log.i(TAG, "Cell info ($took ms): $info")
         pushData(
             UplinkPayload(
@@ -319,6 +321,36 @@ class UplinkService : Service() {
             )
         )
         serviceThread.postDelayed(this::networkStatusTask, 1000)
+    }
+
+    val phoneStateListener = object: PhoneStateListener() {
+        override fun onServiceStateChanged(serviceState: ServiceState?) {
+            Log.i(TAG, "onServiceStateChanged")
+        }
+
+        override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
+            Log.i(TAG, "onSignalStrengthChanged(${signalStrength?.cdmaDbm} | ${signalStrength?.evdoDbm} | ${signalStrength?.gsmSignalStrength} | ${signalStrength?.level})")
+        }
+
+        override fun onCellInfoChanged(cellInfo: MutableList<CellInfo>?) {
+            Log.i(TAG, "onCellInfoChanged")
+        }
+
+        override fun onActiveDataSubscriptionIdChanged(subId: Int) {
+            Log.i(TAG, "onActiveDataSubscriptionIdChanged")
+        }
+
+        override fun onUserMobileDataStateChanged(enabled: Boolean) {
+            Log.i(TAG, "onUserMobileDataStateChanged")
+        }
+
+        override fun onPreciseDataConnectionStateChanged(dataConnectionState: PreciseDataConnectionState) {
+            Log.i(TAG, "onPreciseDataConnectionStateChanged")
+        }
+
+        override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
+            Log.i(TAG, "onDataConnectionStateChanged($state, $networkType)")
+        }
     }
 
     fun getNetworkInfo(): NetworkInfo {
@@ -366,8 +398,8 @@ class UplinkService : Service() {
 
         return NetworkInfo(
             internetType,
-            mobileConnectionType,
             wifiStrength,
+            mobileConnectionType,
             mobileNetworkStrength
         )
     }
@@ -437,7 +469,7 @@ enum class MobileConnectionType { M2G, M3G, M4G, Disconnected }
 
 data class NetworkInfo(
     val internetType: InternetType,
-    val mobileConnectionType: MobileConnectionType,
     val wifiStrength: Int,
-    val mobileNetworkDbm: Int,
+    var mobileConnectionType: MobileConnectionType,
+    var mobileNetworkDbm: Int,
 )
