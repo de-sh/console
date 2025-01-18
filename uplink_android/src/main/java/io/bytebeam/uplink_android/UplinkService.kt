@@ -21,7 +21,6 @@ import androidx.core.app.NotificationCompat
 import java.io.*
 import java.lang.Process
 import java.lang.Runtime
-import java.lang.System
 import java.lang.Thread
 import java.util.concurrent.Executor
 
@@ -236,9 +235,9 @@ class UplinkService : Service() {
             enable_remote_shell = ${uplinkConfig!!.enableRemoteShell}
             enable_stdin_collector = true
             
-            # [logging]
-            # tags = ["UplinkService"]
-            # min_level = 4
+            [logging]
+            tags = ["*"]
+            min_level = 4
             
             [streams.power_status]
             batch_size = 8
@@ -251,7 +250,7 @@ class UplinkService : Service() {
             persistence = { max_file_size = 102400, max_file_count = 10 }
             
             [system_stats]
-            enabled = false
+            enabled = true
             update_period = 2
             stream_size = 1
             
@@ -263,10 +262,15 @@ class UplinkService : Service() {
     ////////////////////////////////////////////////////////////////////////
 
     fun pushData(payload: UplinkPayload) {
-        uplinkProcess?.let {
-            it.outputStream.write(payload.toFlatJson().toByteArray());
-            it.outputStream.write('\n'.code)
-            it.outputStream.flush()
+        try {
+            uplinkProcess?.let {
+                it.outputStream.write(payload.toFlatJson().toByteArray());
+                it.outputStream.write('\n'.code)
+                it.outputStream.flush()
+            }
+        } catch (t: IOException) {
+            Log.w(TAG, "uplink stdin closed, restarting...")
+            stopUplink()
         }
     }
 
@@ -302,7 +306,7 @@ class UplinkService : Service() {
     }
 
     var networkInfoSequence = 1
-    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Disconnected, 0)
+    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Unknown, 0)
     fun networkStatusTask() {
         updateNetworkInfoOne()
         pushData(
@@ -343,19 +347,18 @@ class UplinkService : Service() {
             0
         }
 
-        // if we can make the below callbacks work, we can delete this block
         val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
         for (ci in telephonyManager.allCellInfo) {
-            if (ci is CellInfoLte && ci.isRegistered) {
+            if (ci is CellInfoLte) {
                 cachedNetworkState.mobileNetworkType = MobileConnectionType.M4G
                 cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoWcdma && ci.isRegistered) {
+            } else if (ci is CellInfoWcdma) {
                 cachedNetworkState.mobileNetworkType = MobileConnectionType.M3G
                 cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoGsm && ci.isRegistered) {
+            } else if (ci is CellInfoGsm) {
                 cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
                 cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
-            } else if (ci is CellInfoCdma && ci.isRegistered) {
+            } else if (ci is CellInfoCdma) {
                 cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
                 cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
             }
@@ -380,7 +383,7 @@ class UplinkService : Service() {
                     cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
                 }
             } else if (state == TelephonyManager.DATA_DISCONNECTED) {
-                cachedNetworkState.mobileNetworkType = MobileConnectionType.Disconnected
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.Unknown
                 cachedNetworkState.mobileNetworkLevel = 0
             }
         }
@@ -447,7 +450,7 @@ fun overwriteFile(file: File, content: InputStream) {
 
 enum class InternetType { Wifi, Mobile, Disconnected }
 
-enum class MobileConnectionType { M2G, M3G, M4G, Disconnected }
+enum class MobileConnectionType { M2G, M3G, M4G, Unknown }
 
 data class NetworkInfo(
     var internetType: InternetType,

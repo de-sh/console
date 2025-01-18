@@ -1,5 +1,6 @@
 package io.bytebeam.exampleapp
 
+import android.util.Log
 import UplinkConfig
 import android.Manifest.permission.POST_NOTIFICATIONS
 import android.content.pm.PackageManager
@@ -27,7 +28,7 @@ val testDeviceJson = """
     }
 """.trimIndent()
 
-val uplinkConfig = UplinkConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-vv", "-m", "uplink::collector::stdio"))
+val uplinkConfig = UplinkConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-v"))
 
 class MainActivity : AppCompatActivity() {
     var idx: Int = 0
@@ -35,20 +36,17 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                val requestPermissionLauncher = this.registerForActivityResult(
-                    ActivityResultContracts.RequestPermission()
-                ) { isGranted: Boolean ->
-                    if (isGranted) {
-                        doSetup()
-                    }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            && ContextCompat.checkSelfPermission(this, POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            val requestPermissionLauncher = this.registerForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { isGranted: Boolean ->
+                if (isGranted) {
+                    doSetup()
                 }
-
-                requestPermissionLauncher.launch(POST_NOTIFICATIONS)
             }
+
+            requestPermissionLauncher.launch(POST_NOTIFICATIONS)
           } else {
               doSetup()
           }
