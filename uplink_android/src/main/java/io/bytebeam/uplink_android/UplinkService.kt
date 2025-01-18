@@ -54,8 +54,8 @@ class UplinkService : Service() {
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
-        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
-        telephonyManager.listen(updateNetworkInfoTwo, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
+//        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
+//        telephonyManager.listen(updateNetworkInfoTwo, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -341,6 +341,24 @@ class UplinkService : Service() {
             WifiManager.calculateSignalLevel(wifiInfo.rssi, 101)
         } else {
             0
+        }
+
+        // if we can make the below callbacks work, we can delete this block
+        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
+        for (ci in telephonyManager.allCellInfo) {
+            if (ci is CellInfoLte && ci.isRegistered) {
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.M4G
+                cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoWcdma && ci.isRegistered) {
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.M3G
+                cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoGsm && ci.isRegistered) {
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
+                cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
+            } else if (ci is CellInfoCdma && ci.isRegistered) {
+                cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
+                cachedNetworkState.mobileNetworkLevel = ci.cellSignalStrength.dbm
+            }
         }
     }
 

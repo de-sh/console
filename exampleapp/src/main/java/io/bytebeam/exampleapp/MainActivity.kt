@@ -1,9 +1,14 @@
 package io.bytebeam.exampleapp
 
 import UplinkConfig
+import android.Manifest.permission.POST_NOTIFICATIONS
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Button
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import io.bytebeam.uplink_android.startUplinkService
 import io.bytebeam.uplink_android.stopUplinkService
 
@@ -22,7 +27,7 @@ val testDeviceJson = """
     }
 """.trimIndent()
 
-val uplinkConfig = UplinkConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-v"))
+val uplinkConfig = UplinkConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-vv", "-m", "uplink::collector::stdio"))
 
 class MainActivity : AppCompatActivity() {
     var idx: Int = 0
@@ -30,12 +35,33 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                val requestPermissionLauncher = this.registerForActivityResult(
+                    ActivityResultContracts.RequestPermission()
+                ) { isGranted: Boolean ->
+                    if (isGranted) {
+                        doSetup()
+                    }
+                }
+
+                requestPermissionLauncher.launch(POST_NOTIFICATIONS)
+            }
+          } else {
+              doSetup()
+          }
+    }
+
+    fun doSetup() {
+        startUplinkService(this, "monitoring service is running", uplinkConfig)
+
         findViewById<Button>(R.id.start_btn).setOnClickListener {
             startUplinkService(this, "monitoring service is running", uplinkConfig)
         }
         findViewById<Button>(R.id.stop_btn).setOnClickListener {
             stopUplinkService(this)
         }
-        startUplinkService(this, "monitoring service is running", uplinkConfig)
     }
 }
