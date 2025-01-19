@@ -1,5 +1,6 @@
+package io.bytebeam;
+
 import android.util.Log
-import io.bytebeam.uplink_android.TAG
 import java.io.File
 import java.io.FileWriter
 import java.io.IOException

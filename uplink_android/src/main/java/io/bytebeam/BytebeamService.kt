@@ -1,15 +1,10 @@
-package io.bytebeam.uplink_android
+package io.bytebeam
 
-import LogRotate
-import UplinkConfig
-import UplinkPayload
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
+import android.content.*
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
@@ -23,22 +18,31 @@ import java.lang.Process
 import java.lang.Runtime
 import java.lang.Thread
 import java.util.concurrent.Executor
+import kotlin.system.exitProcess
 
-val StaticExecutor = object: Executor {
+val StaticExecutor = object : Executor {
     override fun execute(cb: Runnable?) {
         cb?.run();
     }
 }
 
-class UplinkService : Service() {
+class BytebeamService : Service() {
     val serviceThread = Handler(Looper.myLooper()!!)
     var uplinkConfig: UplinkConfig? = null;
     var uplinkConfigChanged = false
     var uplinkProcess: Process? = null
     lateinit var uplinkLogger: LogRotate
 
-    override fun onBind(intent: Intent): IBinder? {
-        return null
+    val binder = object : IBytebeamService.Stub() {
+        override fun pushData(payload: BytebeamPayload) {
+            this@BytebeamService.pushData(payload)
+        }
+
+        override fun stopService() {
+            this@BytebeamService.stopSelf()
+//            this@BytebeamService.onDestroy()
+//            exitProcess(0)
+        }
     }
 
     override fun onCreate() {
@@ -47,8 +51,11 @@ class UplinkService : Service() {
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
-//        val telephonyManager = getSystemService(TELEPHONY_SERVICE) as TelephonyManager
-//        telephonyManager.listen(updateNetworkInfoTwo, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS or PhoneStateListener.LISTEN_DATA_CONNECTION_STATE)
+    }
+
+    override fun onBind(intent: Intent): IBinder? {
+        onStartCommand(intent, 0, 0)
+        return binder
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -63,6 +70,7 @@ class UplinkService : Service() {
 
     override fun onDestroy() {
         serviceThread.removeCallbacksAndMessages(null)
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopUplink()
     }
 
@@ -123,7 +131,7 @@ class UplinkService : Service() {
 
     fun stopUplink() {
         if (uplinkProcess == null) return
-        Log.i(TAG, "stopping old uplink process")
+        Log.i(TAG, "stopping old uplink process: $this")
         uplinkProcess!!.destroy()
         for (idx in 1..6) {
             Thread.sleep(500)
@@ -255,7 +263,7 @@ class UplinkService : Service() {
 
     ////////////////////////////////////////////////////////////////////////
 
-    fun pushData(payload: UplinkPayload) {
+    fun pushData(payload: BytebeamPayload) {
         try {
             uplinkProcess?.let {
                 it.outputStream.write(payload.toFlatJson().toByteArray());
@@ -272,7 +280,7 @@ class UplinkService : Service() {
     fun powerStatusTask() {
         val batteryInfo = getBatteryInfo()
         pushData(
-            UplinkPayload(
+            BytebeamPayload(
                 stream = "power_status",
                 sequence = batteryInfoSequence++,
                 fields = mapOf(
@@ -291,7 +299,8 @@ class UplinkService : Service() {
         }
         val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val status = batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: BatteryManager.BATTERY_STATUS_UNKNOWN
+        val status =
+            batteryStatus?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: BatteryManager.BATTERY_STATUS_UNKNOWN
 
         val batteryLevel = if (level == -1 || scale == -1) -1 else (level / scale.toFloat() * 100).toInt()
         val batteryCharging =
@@ -304,7 +313,7 @@ class UplinkService : Service() {
     fun networkStatusTask() {
         updateNetworkInfoOne()
         pushData(
-            UplinkPayload(
+            BytebeamPayload(
                 stream = "network_status",
                 sequence = networkInfoSequence++,
                 fields = mapOf(
@@ -323,7 +332,8 @@ class UplinkService : Service() {
         val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         cachedNetworkState.internetType = run {
             val network = connectivityManager.activeNetwork ?: return@run InternetType.Disconnected
-            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return@run InternetType.Disconnected
+            val capabilities =
+                connectivityManager.getNetworkCapabilities(network) ?: return@run InternetType.Disconnected
 
             if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                 InternetType.Wifi
@@ -359,7 +369,7 @@ class UplinkService : Service() {
         }
     }
 
-    val updateNetworkInfoTwo = object: PhoneStateListener() {
+    val updateNetworkInfoTwo = object : PhoneStateListener() {
         override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
             signalStrength?.level?.let {
                 cachedNetworkState.mobileNetworkLevel = it
@@ -410,36 +420,28 @@ private val uplinkConfigKey = "uplinkConfig"
 private val channelId = "foregroundNotification"
 private val notificationId = 1
 
-fun startUplinkService(context: Context, notificationMessage: String, uplinkConfig: UplinkConfig) {
-    val intent = Intent(context, UplinkService::class.java)
+fun startBytebeamService(
+    context: Context,
+    notificationMessage: String,
+    uplinkConfig: UplinkConfig,
+    onConnected: (IBytebeamService) -> Unit
+) {
+    val intent = Intent(context, BytebeamService::class.java)
     intent.putExtra(notificationMessageKey, notificationMessage)
     intent.putExtra(uplinkConfigKey, uplinkConfig)
     context.startService(intent)
-}
+    context.bindService(
+        intent,
+        object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                Log.i(TAG, "Service connected")
+                onConnected(IBytebeamService.Stub.asInterface(service))
+            }
 
-fun stopUplinkService(context: Context) {
-    context.stopService(Intent(context, UplinkService::class.java))
-}
-
-fun overwriteFile(file: File, content: String) {
-    overwriteFile(file, content.byteInputStream(Charsets.UTF_8))
-}
-
-fun overwriteFile(file: File, content: InputStream) {
-    file.delete()
-    file.createNewFile()
-    val fos = FileOutputStream(file)
-    val buffer = ByteArray(1024)
-    while (true) {
-        val read = content.read(buffer)
-        if (read > 0) {
-            fos.write(buffer, 0, read)
-        } else {
-            break
-        }
-    }
-    fos.close()
-    content.close()
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        },
+        Context.BIND_IMPORTANT
+    )
 }
 
 enum class InternetType { Wifi, Mobile, Disconnected }

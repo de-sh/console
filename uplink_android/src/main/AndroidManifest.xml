@@ -17,7 +17,7 @@
 
     <application>
         <service
-                android:name=".UplinkService"
+                android:name=".BytebeamService"
                 android:process=":uplink_service"
                 android:foregroundServiceType="dataSync"
                 android:enabled="true"

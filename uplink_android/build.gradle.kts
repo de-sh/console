@@ -1,3 +1,5 @@
+import org.gradle.internal.declarativedsl.parsing.main
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -5,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "io.bytebeam.uplink_android"
+    namespace = "io.bytebeam"
     compileSdk = 35
 
     defaultConfig {
@@ -26,6 +28,7 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+    buildFeatures.aidl = true
 }
 
 dependencies {

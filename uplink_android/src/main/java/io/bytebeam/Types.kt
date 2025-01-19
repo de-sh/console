@@ -1,3 +1,5 @@
+package io.bytebeam
+
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.RawValue
@@ -32,7 +34,7 @@ data class UplinkConfig(
 }
 
 @Parcelize
-data class UplinkPayload(
+data class BytebeamPayload(
     val stream: String,
     val sequence: Int,
     val timestamp: Long = System.currentTimeMillis(),
