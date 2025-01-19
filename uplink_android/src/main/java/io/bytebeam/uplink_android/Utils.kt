@@ -5,8 +5,7 @@ fun getPid(process: Process): Int? {
     return try {
         val pidField = process.javaClass.getDeclaredField("pid")
         pidField.isAccessible = true
-        pidField
-        ci.isRegistered.getInt(process)
+        pidField.getInt(process)
     } catch (e: Exception) {
         null
     }

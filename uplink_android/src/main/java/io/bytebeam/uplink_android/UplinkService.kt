@@ -41,15 +41,9 @@ class UplinkService : Service() {
         return null
     }
 
-    lateinit var wakeLock: PowerManager.WakeLock
     override fun onCreate() {
         createNotificationChannel();
         uplinkLogger = LogRotate(deviceJsonFile.parent!!, "out.log", 1024000, 8)
-        wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager).run {
-            newWakeLock(PowerManager.SCREEN_DIM_WAKE_LOCK, "UplinkService::NetworkInfoWakeLock").apply {
-                acquire()
-            }
-        }
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
