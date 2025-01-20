@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "io.bytebeam.exampleapp"
+    namespace = "io.bytebeam.monitoring"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "io.bytebeam.exampleapp"
+        applicationId = "io.bytebeam.monitoring"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

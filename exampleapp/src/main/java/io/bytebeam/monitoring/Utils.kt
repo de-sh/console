@@ -1,6 +1,5 @@
-package io.bytebeam.exampleapp
+package io.bytebeam.monitoring
 
-import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log

@@ -17,6 +17,8 @@ import java.io.*
 import java.lang.Process
 import java.lang.Runtime
 import java.lang.Thread
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
 
 val StaticExecutor = object : Executor {
@@ -31,6 +33,7 @@ class BytebeamService : Service() {
     var uplinkConfigChanged = false
     var uplinkProcess: Process? = null
     lateinit var uplinkLogger: LogRotate
+    lateinit var serviceLogger: LogRotate
 
     val binder = object : IBytebeamService.Stub() {
         override fun pushData(payload: BytebeamPayload) {
@@ -39,14 +42,14 @@ class BytebeamService : Service() {
 
         override fun stopService() {
             this@BytebeamService.stopSelf()
-//            this@BytebeamService.onDestroy()
-//            exitProcess(0)
         }
     }
 
     override fun onCreate() {
         createNotificationChannel();
         uplinkLogger = LogRotate(deviceJsonFile.parent!!, "out.log", 1024000, 8)
+        serviceLogger = LogRotate(deviceJsonFile.parentFile?.parent!!, "service_scheduling.log", 1024000, 3)
+        serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: created bytebeam service")
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
@@ -58,8 +61,8 @@ class BytebeamService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(notificationId, buildNotification(intent?.getStringExtra(notificationMessageKey)!!))
-        val newConfig = intent.getParcelableExtra<BytebeamConfig>(uplinkConfigKey)
+        startForeground(notificationId, buildNotification("Monitoring service is running"))
+        val newConfig = intent?.getParcelableExtra<BytebeamConfig>(uplinkConfigKey)
         if (newConfig != uplinkConfig) {
             uplinkConfigChanged = true;
             uplinkConfig = newConfig
@@ -101,6 +104,7 @@ class BytebeamService : Service() {
     ////////////////////////////////////////////////////////////////////////
 
     fun processManager() {
+        serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: ProcessManager tick")
         if (uplinkConfigChanged) {
             Log.i(TAG, "reloading uplink config")
             stopUplink()
@@ -277,6 +281,7 @@ class BytebeamService : Service() {
 
     var batteryInfoSequence = 1
     fun powerStatusTask() {
+        serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: PowerStatus tick")
         val batteryInfo = getBatteryInfo()
         pushData(
             BytebeamPayload(
@@ -310,6 +315,7 @@ class BytebeamService : Service() {
     var networkInfoSequence = 1
     var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Unknown, 0)
     fun networkStatusTask() {
+        serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: NetworkStatus tick")
         updateNetworkInfoOne()
         pushData(
             BytebeamPayload(
@@ -413,7 +419,6 @@ class BytebeamService : Service() {
 
 val TAG = "UplinkService"
 
-private val notificationMessageKey = "notificationMessage"
 private val uplinkConfigKey = "uplinkConfig"
 
 private val channelId = "foregroundNotification"
@@ -421,12 +426,10 @@ private val notificationId = 1
 
 fun startBytebeamService(
     context: Context,
-    notificationMessage: String,
     bytebeamConfig: BytebeamConfig,
     onConnected: (IBytebeamService) -> Unit
 ) {
     val intent = Intent(context, BytebeamService::class.java)
-    intent.putExtra(notificationMessageKey, notificationMessage)
     intent.putExtra(uplinkConfigKey, bytebeamConfig)
     context.startService(intent)
     context.bindService(

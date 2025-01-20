@@ -3,6 +3,8 @@ package io.bytebeam
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.text.SimpleDateFormat
+import java.util.*
 
 
 fun getPid(process: Process): Int? {
@@ -41,3 +43,8 @@ fun overwriteFile(file: File, content: InputStream) {
     content.close()
 }
 
+fun getLocalDateTimeAsString(): String {
+    val calendar = Calendar.getInstance()
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+    return dateFormat.format(calendar.time)
+}
