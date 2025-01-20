@@ -6,7 +6,7 @@ import kotlinx.parcelize.RawValue
 import org.json.JSONObject
 
 @Parcelize
-data class UplinkConfig(
+data class BytebeamConfig(
     val credentials: String,
     val enableRemoteShell: Boolean = true,
     val extraUplinkArgs: Array<String> = arrayOf("-v"),
@@ -16,7 +16,7 @@ data class UplinkConfig(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
 
-        other as UplinkConfig
+        other as BytebeamConfig
 
         if (enableRemoteShell != other.enableRemoteShell) return false
         if (credentials != other.credentials) return false

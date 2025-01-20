@@ -18,7 +18,6 @@ import java.lang.Process
 import java.lang.Runtime
 import java.lang.Thread
 import java.util.concurrent.Executor
-import kotlin.system.exitProcess
 
 val StaticExecutor = object : Executor {
     override fun execute(cb: Runnable?) {
@@ -28,7 +27,7 @@ val StaticExecutor = object : Executor {
 
 class BytebeamService : Service() {
     val serviceThread = Handler(Looper.myLooper()!!)
-    var uplinkConfig: UplinkConfig? = null;
+    var uplinkConfig: BytebeamConfig? = null;
     var uplinkConfigChanged = false
     var uplinkProcess: Process? = null
     lateinit var uplinkLogger: LogRotate
@@ -60,7 +59,7 @@ class BytebeamService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(notificationId, buildNotification(intent?.getStringExtra(notificationMessageKey)!!))
-        val newConfig = intent.getParcelableExtra<UplinkConfig>(uplinkConfigKey)
+        val newConfig = intent.getParcelableExtra<BytebeamConfig>(uplinkConfigKey)
         if (newConfig != uplinkConfig) {
             uplinkConfigChanged = true;
             uplinkConfig = newConfig
@@ -423,12 +422,12 @@ private val notificationId = 1
 fun startBytebeamService(
     context: Context,
     notificationMessage: String,
-    uplinkConfig: UplinkConfig,
+    bytebeamConfig: BytebeamConfig,
     onConnected: (IBytebeamService) -> Unit
 ) {
     val intent = Intent(context, BytebeamService::class.java)
     intent.putExtra(notificationMessageKey, notificationMessage)
-    intent.putExtra(uplinkConfigKey, uplinkConfig)
+    intent.putExtra(uplinkConfigKey, bytebeamConfig)
     context.startService(intent)
     context.bindService(
         intent,
