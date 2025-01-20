@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.*
+import android.health.connect.datatypes.units.Percentage
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiInfo
@@ -17,6 +18,7 @@ import java.io.*
 import java.lang.Process
 import java.lang.Runtime
 import java.lang.Thread
+import java.net.InetAddress
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
@@ -29,6 +31,7 @@ val StaticExecutor = object : Executor {
 
 class BytebeamService : Service() {
     val serviceThread = Handler(Looper.myLooper()!!)
+    lateinit var networkMonitoringThread: Thread
     var uplinkConfig: BytebeamConfig? = null;
     var uplinkConfigChanged = false
     var uplinkProcess: Process? = null
@@ -53,6 +56,13 @@ class BytebeamService : Service() {
         serviceThread.post(this::processManager)
         serviceThread.post(this::powerStatusTask)
         serviceThread.post(this::networkStatusTask)
+        networkMonitoringThread = Thread {
+            try {
+                networkMonitoringThread()
+            } catch (t: Throwable) {}
+        }.also {
+            it.start()
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? {
@@ -72,8 +82,9 @@ class BytebeamService : Service() {
 
     override fun onDestroy() {
         serviceThread.removeCallbacksAndMessages(null)
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        networkMonitoringThread.interrupt()
         stopUplink()
+        stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     ////////////////////////////////////////////////////////////////////////
@@ -313,7 +324,7 @@ class BytebeamService : Service() {
     }
 
     var networkInfoSequence = 1
-    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Unknown, 0)
+    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Unknown, 0, 0, 0)
     fun networkStatusTask() {
         serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: NetworkStatus tick")
         updateNetworkInfoOne()
@@ -322,7 +333,8 @@ class BytebeamService : Service() {
                 stream = "network_status",
                 sequence = networkInfoSequence++,
                 fields = mapOf(
-                    "ping_ms" to pingServer(),
+                    "ping_ms" to cachedNetworkState.pingMs,
+                    "packet_loss_percentage" to cachedNetworkState.packetLossPercentage,
                     "internet_connection_type" to cachedNetworkState.internetType.toString(),
                     "wifi_strength" to cachedNetworkState.wifiStrength,
                     "mobile_network_type" to cachedNetworkState.mobileNetworkType.toString(),
@@ -333,7 +345,7 @@ class BytebeamService : Service() {
         serviceThread.postDelayed(this::networkStatusTask, 1000)
     }
 
-    fun updateNetworkInfoOne() {
+    private fun updateNetworkInfoOne() {
         val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         cachedNetworkState.internetType = run {
             val network = connectivityManager.activeNetwork ?: return@run InternetType.Disconnected
@@ -374,46 +386,18 @@ class BytebeamService : Service() {
         }
     }
 
-    val updateNetworkInfoTwo = object : PhoneStateListener() {
-        override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
-            signalStrength?.level?.let {
-                cachedNetworkState.mobileNetworkLevel = it
+    // SYNC
+    private fun networkMonitoringThread() {
+        while (true) {
+            val url = uplinkConfig?.pingUrl
+            if (url != null) {
+                serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: network monitoring thread tick")
+                val result = benchmarkNetwork(url)
+                cachedNetworkState.pingMs = result.first
+                cachedNetworkState.packetLossPercentage = result.second
             }
+            Thread.sleep(5000)
         }
-
-        override fun onDataConnectionStateChanged(state: Int, networkType: Int) {
-            Log.i(TAG, "data connection state change: $state, $networkType")
-            if (state == TelephonyManager.DATA_CONNECTED) {
-                if (networkType == TelephonyManager.NETWORK_TYPE_LTE) {
-                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M4G
-                } else if (networkType == TelephonyManager.NETWORK_TYPE_CDMA) {
-                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M3G
-                } else if (networkType == TelephonyManager.NETWORK_TYPE_GSM || networkType == TelephonyManager.NETWORK_TYPE_EDGE) {
-                    cachedNetworkState.mobileNetworkType = MobileConnectionType.M2G
-                }
-            } else if (state == TelephonyManager.DATA_DISCONNECTED) {
-                cachedNetworkState.mobileNetworkType = MobileConnectionType.Unknown
-                cachedNetworkState.mobileNetworkLevel = 0
-            }
-        }
-    }
-
-    fun pingServer(): Long {
-        return 0
-//        return try {
-//            val inetAddress = InetAddress.getByName(uplinkConfig!!.pingUrl)
-//            val startTime = System.currentTimeMillis()
-//            val isReachable = inetAddress.isReachable(1000)
-//            val endTime = System.currentTimeMillis()
-//            if (isReachable) {
-//                endTime - startTime
-//            } else {
-//                -1L
-//            }
-//        } catch (e: Exception) {
-//            e.printStackTrace()
-//            -1L
-//        }
     }
 }
 
@@ -455,4 +439,6 @@ data class NetworkInfo(
     var wifiStrength: Int,
     var mobileNetworkType: MobileConnectionType,
     var mobileNetworkLevel: Int,
+    var pingMs: Long,
+    var packetLossPercentage: Long,
 )
