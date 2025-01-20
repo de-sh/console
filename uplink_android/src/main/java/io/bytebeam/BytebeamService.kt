@@ -4,10 +4,11 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.app.usage.NetworkStats
 import android.content.*
-import android.health.connect.datatypes.units.Percentage
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.*
@@ -18,9 +19,6 @@ import java.io.*
 import java.lang.Process
 import java.lang.Runtime
 import java.lang.Thread
-import java.net.InetAddress
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executor
 
 val StaticExecutor = object : Executor {
@@ -324,10 +322,10 @@ class BytebeamService : Service() {
     }
 
     var networkInfoSequence = 1
-    var cachedNetworkState = NetworkInfo(InternetType.Disconnected, 0, MobileConnectionType.Unknown, 0, 0, 0)
+    var cachedNetworkState = NetworkInfo()
     fun networkStatusTask() {
         serviceLogger.pushLogLine("${getLocalDateTimeAsString()}: NetworkStatus tick")
-        updateNetworkInfoOne()
+        updateNetworkInfo()
         pushData(
             BytebeamPayload(
                 stream = "network_status",
@@ -338,14 +336,52 @@ class BytebeamService : Service() {
                     "internet_connection_type" to cachedNetworkState.internetType.toString(),
                     "wifi_strength" to cachedNetworkState.wifiStrength,
                     "mobile_network_type" to cachedNetworkState.mobileNetworkType.toString(),
-                    "mobile_network_level" to cachedNetworkState.mobileNetworkLevel
+                    "mobile_network_level" to cachedNetworkState.mobileNetworkLevel,
+                    "sent_bytes" to cachedNetworkState.sentBytes,
+                    "recv_bytes" to cachedNetworkState.recvBytes,
+                    "sent_bytes_mobile" to cachedNetworkState.sentBytesMobile,
+                    "recv_bytes_mobile" to cachedNetworkState.recvBytesMobile,
                 )
             )
         )
         serviceThread.postDelayed(this::networkStatusTask, 1000)
     }
 
-    private fun updateNetworkInfoOne() {
+    var totalRxBytes: Long = 0
+    var totalTxBytes: Long = 0
+    var totalMobileRxBytes: Long = 0
+    var totalMobileTxBytes: Long = 0
+    private fun updateNetworkInfo() {
+        val newTotalRxBytes = TrafficStats.getTotalRxBytes()
+        if (newTotalRxBytes > 0) {
+            cachedNetworkState.recvBytes = clamp(0, if (totalRxBytes == 0L) { 0 } else { newTotalRxBytes - totalRxBytes }, Long.MAX_VALUE)
+            totalRxBytes = newTotalRxBytes
+        } else {
+            cachedNetworkState.recvBytes = 0
+        }
+        val newTotalTxBytes = TrafficStats.getTotalTxBytes()
+        if (newTotalTxBytes > 0) {
+            cachedNetworkState.sentBytes = clamp(0, if (totalTxBytes == 0L) { 0 } else { newTotalTxBytes - totalTxBytes }, Long.MAX_VALUE)
+            totalTxBytes = newTotalTxBytes
+        } else {
+            cachedNetworkState.sentBytes = 0
+        }
+
+        val newTotalMobileRxBytes = TrafficStats.getMobileRxBytes()
+        if (newTotalMobileRxBytes > 0) {
+            cachedNetworkState.recvBytesMobile = clamp(0, if (totalMobileRxBytes == 0L) { 0 } else { newTotalMobileRxBytes - totalMobileRxBytes }, Long.MAX_VALUE)
+            totalMobileRxBytes = newTotalMobileRxBytes
+        } else {
+            cachedNetworkState.recvBytesMobile = 0
+        }
+        val newTotalMobileTxBytes = TrafficStats.getMobileTxBytes()
+        if (newTotalMobileTxBytes > 0) {
+            cachedNetworkState.sentBytesMobile = clamp(0, if (totalMobileTxBytes == 0L) { 0 } else { newTotalMobileTxBytes - totalMobileTxBytes }, Long.MAX_VALUE)
+            totalMobileTxBytes = newTotalMobileTxBytes
+        } else {
+            cachedNetworkState.sentBytesMobile = 0
+        }
+
         val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         cachedNetworkState.internetType = run {
             val network = connectivityManager.activeNetwork ?: return@run InternetType.Disconnected
@@ -435,10 +471,14 @@ enum class InternetType { Wifi, Mobile, Disconnected }
 enum class MobileConnectionType { M2G, M3G, M4G, Unknown }
 
 data class NetworkInfo(
-    var internetType: InternetType,
-    var wifiStrength: Int,
-    var mobileNetworkType: MobileConnectionType,
-    var mobileNetworkLevel: Int,
-    var pingMs: Long,
-    var packetLossPercentage: Long,
+    var internetType: InternetType = InternetType.Disconnected,
+    var wifiStrength: Int = 0,
+    var mobileNetworkType: MobileConnectionType = MobileConnectionType.Unknown,
+    var mobileNetworkLevel: Int = 0,
+    var pingMs: Long = 0,
+    var packetLossPercentage: Long = 0,
+    var sentBytes: Long = 0,
+    var recvBytes: Long = 0,
+    var sentBytesMobile: Long = 0,
+    var recvBytesMobile: Long = 0,
 )
