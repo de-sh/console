@@ -3,6 +3,7 @@ package io.bytebeam.monitoring
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import io.bytebeam.dbg
 import kotlin.random.Random
 
 fun printRandomLogLine() {
@@ -104,7 +105,7 @@ fun printRandomLogLine() {
     )
 
     val level = logLevels.random()
-    val tag = tags.random()
+    val tag = "MOCK:${tags.random()}"
     val message = messages.random()
 
     when (level) {
@@ -116,5 +117,8 @@ fun printRandomLogLine() {
         Log.ASSERT -> Log.wtf(tag, message)
     }
 
-    Handler(Looper.myLooper()!!).postDelayed({ printRandomLogLine() }, Random.nextLong(500, 1000))
+    Handler(Looper.myLooper()!!).postDelayed(
+        { printRandomLogLine() },
+        Random.nextLong(8000, 16000)
+    )
 }

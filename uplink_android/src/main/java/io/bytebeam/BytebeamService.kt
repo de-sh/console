@@ -254,19 +254,25 @@ class BytebeamService : Service() {
             min_level = 4
             
             [streams.power_status]
+            compress = "Lz4"
             batch_size = 8
-            flush_period = 1
+            flush_period = 10
             persistence = { max_file_size = 102400, max_file_count = 10 }
             
             [streams.network_status]
+            compress = "Lz4"
             batch_size = 8
-            flush_period = 1
+            flush_period = 10
             persistence = { max_file_size = 102400, max_file_count = 10 }
+            
+            [streams.logs]
+            compression = "Lz4"
+            persistence = { max_file_size = 1024000, max_file_count = 10 }
             
             [system_stats]
             enabled = true
-            update_period = 2
-            stream_size = 1
+            update_period = 10
+            stream_size = 8
             
             [device_shadow]
             interval = 10
@@ -303,7 +309,7 @@ class BytebeamService : Service() {
             )
         )
 
-        serviceThread.postDelayed(this::powerStatusTask, 5000)
+        serviceThread.postDelayed(this::powerStatusTask, 10000)
     }
 
     fun getBatteryInfo(): Pair<Int, Boolean> {
@@ -344,7 +350,7 @@ class BytebeamService : Service() {
                 )
             )
         )
-        serviceThread.postDelayed(this::networkStatusTask, 1000)
+        serviceThread.postDelayed(this::networkStatusTask, 10000)
     }
 
     var totalRxBytes: Long = 0
@@ -355,32 +361,32 @@ class BytebeamService : Service() {
         val newTotalRxBytes = TrafficStats.getTotalRxBytes()
         if (newTotalRxBytes > 0) {
             cachedNetworkState.recvBytes = clamp(0, if (totalRxBytes == 0L) { 0 } else { newTotalRxBytes - totalRxBytes }, Long.MAX_VALUE)
-            totalRxBytes = newTotalRxBytes
         } else {
             cachedNetworkState.recvBytes = 0
         }
+        totalRxBytes = newTotalRxBytes
         val newTotalTxBytes = TrafficStats.getTotalTxBytes()
         if (newTotalTxBytes > 0) {
             cachedNetworkState.sentBytes = clamp(0, if (totalTxBytes == 0L) { 0 } else { newTotalTxBytes - totalTxBytes }, Long.MAX_VALUE)
-            totalTxBytes = newTotalTxBytes
         } else {
             cachedNetworkState.sentBytes = 0
         }
+        totalTxBytes = newTotalTxBytes
 
         val newTotalMobileRxBytes = TrafficStats.getMobileRxBytes()
         if (newTotalMobileRxBytes > 0) {
             cachedNetworkState.recvBytesMobile = clamp(0, if (totalMobileRxBytes == 0L) { 0 } else { newTotalMobileRxBytes - totalMobileRxBytes }, Long.MAX_VALUE)
-            totalMobileRxBytes = newTotalMobileRxBytes
         } else {
             cachedNetworkState.recvBytesMobile = 0
         }
+        totalMobileRxBytes = newTotalMobileRxBytes
         val newTotalMobileTxBytes = TrafficStats.getMobileTxBytes()
         if (newTotalMobileTxBytes > 0) {
             cachedNetworkState.sentBytesMobile = clamp(0, if (totalMobileTxBytes == 0L) { 0 } else { newTotalMobileTxBytes - totalMobileTxBytes }, Long.MAX_VALUE)
-            totalMobileTxBytes = newTotalMobileTxBytes
         } else {
             cachedNetworkState.sentBytesMobile = 0
         }
+        totalMobileTxBytes = newTotalMobileTxBytes
 
         val connectivityManager = this.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         cachedNetworkState.internetType = run {
@@ -432,7 +438,7 @@ class BytebeamService : Service() {
                 cachedNetworkState.pingMs = result.first
                 cachedNetworkState.packetLossPercentage = result.second
             }
-            Thread.sleep(5000)
+            Thread.sleep(10000)
         }
     }
 }

@@ -22,11 +22,5 @@
                 android:text="Stop"
                 android:id="@+id/stop_btn"
         />
-        <Button
-                android:layout_width="match_parent"
-                android:layout_height="200px"
-                android:text="Reconfigure"
-                android:id="@+id/reconfigure_btn"
-        />
     </LinearLayout>
 </androidx.constraintlayout.widget.ConstraintLayout>
