@@ -1,19 +1,20 @@
 package io.bytebeam.monitoring
 
 import android.Manifest.permission.*
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.*
 import android.provider.Settings
+import android.util.Log
 import android.widget.Button
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import io.bytebeam.IBytebeamService
-import io.bytebeam.BytebeamConfig
-import io.bytebeam.startBytebeamService
+import io.bytebeam.*
 
 class MainActivity : AppCompatActivity() {
     private var batteryOptIgnored = false
@@ -90,14 +91,37 @@ class MainActivity : AppCompatActivity() {
         val testDeviceJson = assets.open("device.json").bufferedReader().use { it.readText() }
         val bytebeamConfig = BytebeamConfig(testDeviceJson, true, extraUplinkArgs = arrayOf("-v"))
 
-        startBytebeamService(this, bytebeamConfig, { bytebeamServiceConnection = it })
+        startBytebeamService(bytebeamConfig)
         findViewById<Button>(R.id.start_btn).setOnClickListener {
-            startBytebeamService(this, bytebeamConfig, { bytebeamServiceConnection = it })
+            startBytebeamService(bytebeamConfig)
         }
         findViewById<Button>(R.id.stop_btn).setOnClickListener {
             bytebeamServiceConnection?.stopService()
         }
         Handler(Looper.myLooper()!!).post({ printRandomLogLine() })
+    }
+
+    fun startBytebeamService(
+        bytebeamConfig: BytebeamConfig,
+    ) {
+        val intent = Intent(this, BytebeamService::class.java)
+        intent.putExtra(uplinkConfigKey, bytebeamConfig)
+        startService(intent)
+        bindService(
+            intent,
+            object : ServiceConnection {
+                override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+                    Log.i(TAG, "Service connected")
+                    bytebeamServiceConnection = IBytebeamService.Stub.asInterface(service)
+                }
+
+                override fun onServiceDisconnected(name: ComponentName?) {
+                    Log.e(TAG, "disconnected from bytebeam service")
+                    Toast.makeText(this@MainActivity, "Disconnected from bytebeam service", Toast.LENGTH_SHORT).show()
+                }
+            },
+            Context.BIND_IMPORTANT
+        )
     }
 
     override fun onRequestPermissionsResult(

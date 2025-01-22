@@ -454,32 +454,10 @@ class BytebeamService : Service() {
 
 val TAG = "UplinkService"
 
-private val uplinkConfigKey = "uplinkConfig"
+val uplinkConfigKey = "uplinkConfig"
 
 private val channelId = "foregroundNotification"
 private val notificationId = 1
-
-fun startBytebeamService(
-    context: Context,
-    bytebeamConfig: BytebeamConfig,
-    onConnected: (IBytebeamService) -> Unit
-) {
-    val intent = Intent(context, BytebeamService::class.java)
-    intent.putExtra(uplinkConfigKey, bytebeamConfig)
-    context.startService(intent)
-    context.bindService(
-        intent,
-        object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-                Log.i(TAG, "Service connected")
-                onConnected(IBytebeamService.Stub.asInterface(service))
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {}
-        },
-        Context.BIND_IMPORTANT
-    )
-}
 
 enum class InternetType { Wifi, Mobile, Disconnected }
 
