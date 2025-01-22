@@ -280,8 +280,8 @@ class BytebeamService : Service() {
             
             [system_stats]
             enabled = true
-            update_period = 10
-            stream_size = 8
+            update_period = 5
+            stream_size = 32
             
             [device_shadow]
             interval = 10

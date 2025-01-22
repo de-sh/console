@@ -21,4 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Uplink Android"
 include(":uplink_android")
-include(":exampleapp")
+include(":monitoring_app")
