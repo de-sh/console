@@ -269,6 +269,15 @@ class BytebeamService : Service() {
             compression = "Lz4"
             persistence = { max_file_size = 1024000, max_file_count = 10 }
             
+            [streams.uplink_processor_stats]
+            compression = "Lz4"
+                        
+            [streams.uplink_disk_stats]
+            compression = "Lz4"
+            
+            [streams.uplink_system_stats]
+            compression = "Lz4"
+            
             [system_stats]
             enabled = true
             update_period = 10
